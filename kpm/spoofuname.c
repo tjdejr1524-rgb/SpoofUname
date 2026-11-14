@@ -8,6 +8,7 @@
 #include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
+#include <linux/seq_file.h> /* seq_printf 사용을 위해 추가 */
 #include "../../../common.h"
 
 #ifndef min
@@ -182,6 +183,14 @@ static void after_newuname(hook_fargs1_t *args, void *udata)
     }
 }
 
+/* ===== [추가된 부분] /proc/version 위조를 위한 콜백 함수 ===== */
+static int hook_version_proc_show(struct seq_file *m, void *v) {
+    // DuckDetector가 @build 문자열을 찾지 못하도록 깨끗한 문자열 반환
+    // (커널 버전에 맞춰 적절한 문자열로 수정하세요)
+    seq_printf(m, "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@build-host) #1 SMP PREEMPT Wed Dec 3 02:05:30 UTC 2025\n");
+    return 0;
+}
+
 static long inline_hook_demo_init(const char *args, const char *event, void *__user reserved)
 {
     spoof_logd("Spoof Uname init\n");
@@ -209,6 +218,16 @@ static long inline_hook_demo_init(const char *args, const char *event, void *__u
         }
         inline_unhook_syscalln(__NR_uname, NULL, after_newuname);
         return err;
+    }
+
+    /* ===== [추가된 부분] /proc/version 후킹 등록 ===== */
+    void *target = (void *)kallsyms_lookup_name("version_proc_show");
+    if (target) {
+        // hook_replace를 사용하여 원본 함수를 우리 함수로 완전히 교체
+        hook_replace(target, (void *)hook_version_proc_show);
+        spoof_logd("version_proc_show replaced successfully\n");
+    } else {
+        spoof_logd("Failed to find version_proc_show\n");
     }
 
     return 0;
@@ -242,7 +261,9 @@ static long inline_hook_demo_exit(void *__user reserved)
     modify_enabled = 0;
     inline_unhook_syscalln(__NR_uname, NULL, after_newuname);
     inline_unhook_syscalln(__NR_reboot, before_reboot, NULL);
-
+    
+    /* 필요하다면 version_proc_show unhook 코드 추가 (hook_replace 해제) */
+    
     return 0;
 }
 
