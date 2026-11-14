@@ -1,0 +1,35 @@
+name: Build KPM
+
+on:
+  push:
+    paths:
+      - '**.c'
+      - '**.h'
+      - '**/Makefile'
+  workflow_dispatch: # 수동 실행 버튼 활성화
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # KernelPatch 서브모듈 포함
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d # 호환되는 NDK 버전
+
+      - name: Build KPM
+        run: |
+          # 프로젝트의 Makefile이 있는 디렉터리로 이동 (본인 구조에 맞게 수정)
+          cd selinux_hook 
+          make
+
+      - name: Upload KPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpm-artifacts
+          path: '**/*.kpm' # 빌드된 .kpm 파일 경로
