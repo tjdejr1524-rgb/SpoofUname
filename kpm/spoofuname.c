@@ -8,7 +8,6 @@
 #include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
-#include <linux/seq_file.h> /* seq_printf 사용을 위해 추가 */
 #include "../../../common.h"
 
 #ifndef min
@@ -182,12 +181,21 @@ static void after_newuname(hook_fargs1_t *args, void *udata)
         compat_copy_to_user((void __user *)(name + UTS_VERSION_OFFSET), custom_version, strlen(custom_version) + 1);
     }
 }
+/* seq_file 구조체 최소 정의 */
+struct seq_file {
+    char *buf;
+    size_t size;
+    size_t from;
+    size_t count;
+};
 
+/* seq_write 함수 원형 선언 */
+extern int seq_write(struct seq_file *seq, const void *data, size_t len);
 /* ===== [추가된 부분] /proc/version 위조를 위한 콜백 함수 ===== */
 static int hook_version_proc_show(struct seq_file *m, void *v) {
     // DuckDetector가 @build 문자열을 찾지 못하도록 깨끗한 문자열 반환
-    // (커널 버전에 맞춰 적절한 문자열로 수정하세요)
-    seq_printf(m, "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@build-host) #1 SMP PREEMPT Wed Dec 3 02:05:30 UTC 2025\n");
+    const char *clean_ver = "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@build-host) #1 SMP PREEMPT Wed Dec 3 02:05:30 UTC 2025\n";
+    seq_write(m, clean_ver, strlen(clean_ver));
     return 0;
 }
 
