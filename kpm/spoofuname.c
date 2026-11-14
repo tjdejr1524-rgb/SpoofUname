@@ -37,11 +37,10 @@ static void after_version_proc_show(hook_fargs2_t *args, void *udata)
     struct seq_file *m = (struct seq_file *)args->arg0;
     if (!m || !m->buf) return;
 
-    // DuckDetector가 @build를 못 찾도록 build-host를 localhost로 변경
-    const char *clean_ver = "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@localhost) (Android (10087095, +pgo, +bolt, +lto, -mlgo, based on r487747c) clang version 17.0.2 (https://android.googlesource.com/toolchain/llvm-project d9f89f4d16663d5012e5c09495f3b30ece3d2362), LLD 17.0.2) #1 SMP PREEMPT Wed Dec  3 02:05:30 UTC 2025\n";
+    // 🎯 [수정] @ 기호를 완전히 제거 (예: android-build)
+    const char *clean_ver = "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (android-build) (Android (10087095, +pgo, +bolt, +lto, -mlgo, based on r487747c) clang version 17.0.2 (https://android.googlesource.com/toolchain/llvm-project d9f89f4d16663d5012e5c09495f3b30ece3d2362), LLD 17.0.2) #1 SMP PREEMPT Wed Dec  3 02:05:30 UTC 2025\n";
+    
     size_t len = strlen(clean_ver);
-
-    // 버퍼 크기가 충분한지 확인 후 덮어쓰기
     if (m->size >= len) { 
         m->count = len;
         memcpy(m->buf, clean_ver, len);
