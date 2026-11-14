@@ -24,6 +24,18 @@
 #define spoof_logd(fmt, ...) ((void)0)
 #endif
 
+/* ===== [수정] seq_file 관련 선언 (헤더 누락 방지) ===== */
+struct seq_file {
+    char *buf;
+    size_t size;
+    size_t from;
+    size_t count;
+};
+extern int seq_write(struct seq_file *seq, const void *data, size_t len);
+
+/* ===== [수정] hook 함수 원형 선언 ===== */
+extern hook_err_t hook(void *func, void *replace, void **backup);
+
 static char custom_release[SPOOFUNAME_MAX_LENGTH + 1] = "";
 static char custom_version[SPOOFUNAME_MAX_LENGTH + 1] = "";
 static int modify_enabled = 0;
@@ -79,7 +91,6 @@ int control(const char *args, char *out_msg, int outlen)
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "disabled");
         spoof_logd("disabled\n");
     } else if (!strcmp(args, "CR")) {
-        /* 清除 release：置空后 uname 钩子不再覆盖该字段，恢复设备原值。 */
         custom_release[0] = '\0';
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "release cleared");
         spoof_logd("release cleared\n");
@@ -148,7 +159,6 @@ static void before_reboot(hook_fargs4_t *args, void *udata)
         break;
 
     case SPOOFUNAME_CMD_CLEAR_RELEASE:
-        /* 置空 release：uname 钩子对空字段不再覆盖，即恢复设备原值。 */
         custom_release[0] = '\0';
         spoof_logd("release cleared via reboot hook\n");
         break;
@@ -181,19 +191,10 @@ static void after_newuname(hook_fargs1_t *args, void *udata)
         compat_copy_to_user((void __user *)(name + UTS_VERSION_OFFSET), custom_version, strlen(custom_version) + 1);
     }
 }
-/* seq_file 구조체 최소 정의 */
-struct seq_file {
-    char *buf;
-    size_t size;
-    size_t from;
-    size_t count;
-};
 
-/* seq_write 함수 원형 선언 */
-extern int seq_write(struct seq_file *seq, const void *data, size_t len);
-/* ===== [추가된 부분] /proc/version 위조를 위한 콜백 함수 ===== */
+/* ===== [수정] /proc/version 위조 콜백 함수 ===== */
 static int hook_version_proc_show(struct seq_file *m, void *v) {
-    // DuckDetector가 @build 문자열을 찾지 못하도록 깨끗한 문자열 반환
+    // DuckDetector가 @build를 못 찾도록 깨끗한 문자열 반환
     const char *clean_ver = "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@build-host) #1 SMP PREEMPT Wed Dec 3 02:05:30 UTC 2025\n";
     seq_write(m, clean_ver, strlen(clean_ver));
     return 0;
@@ -228,12 +229,16 @@ static long inline_hook_demo_init(const char *args, const char *event, void *__u
         return err;
     }
 
-    /* ===== [추가된 부분] /proc/version 후킹 등록 ===== */
+    /* ===== [수정] version_proc_show 후킹 (hook_replace 대신 hook 사용) ===== */
     void *target = (void *)kallsyms_lookup_name("version_proc_show");
     if (target) {
-        // hook_replace를 사용하여 원본 함수를 우리 함수로 완전히 교체
-        hook_replace(target, (void *)hook_version_proc_show);
-        spoof_logd("version_proc_show replaced successfully\n");
+        void *backup = NULL;
+        err = hook(target, (void *)hook_version_proc_show, &backup);
+        if (err == HOOK_NO_ERR) {
+            spoof_logd("version_proc_show hooked successfully\n");
+        } else {
+            spoof_logd("Failed to hook version_proc_show: %d\n", err);
+        }
     } else {
         spoof_logd("Failed to find version_proc_show\n");
     }
@@ -269,8 +274,6 @@ static long inline_hook_demo_exit(void *__user reserved)
     modify_enabled = 0;
     inline_unhook_syscalln(__NR_uname, NULL, after_newuname);
     inline_unhook_syscalln(__NR_reboot, before_reboot, NULL);
-    
-    /* 필요하다면 version_proc_show unhook 코드 추가 (hook_replace 해제) */
     
     return 0;
 }
