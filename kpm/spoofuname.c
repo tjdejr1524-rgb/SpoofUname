@@ -1,4 +1,4 @@
-#include <log.h>
+#include <log.h>#include <log.h>
 #include <compiler.h>
 #include <kpmodule.h>
 #include <hook.h>
@@ -8,6 +8,7 @@
 #include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
+#include <linux/printk.h> /* 👈 pr_info 사용을 위해 추가 */
 #include "../../../common.h"
 
 #ifndef min
@@ -18,7 +19,7 @@
 #define MYKPM_VERSION "v0.0.1-1-unknown"
 #endif
 
-// ===== [수정 1] 디버그 모드가 아니어도 로그가 무조건 dmesg에 찍히도록 강제 변경 =====
+/* ===== [수정] 로그가 무조건 출력되도록 변경 ===== */
 #define spoof_logd(fmt, ...) pr_info("[SpoofUname] " fmt, ##__VA_ARGS__)
 
 /* ===== [추가] seq_file 관련 선언 ===== */
@@ -30,7 +31,7 @@ struct seq_file {
 };
 extern int seq_write(struct seq_file *seq, const void *data, size_t len);
 
-/* ===== [수정 2] @build 문자열을 @localhost 로 변경 ===== */
+/* ===== [수정] @build 문자열을 @localhost 로 변경 ===== */
 static void after_version_proc_show(hook_fargs2_t *args, void *udata)
 {
     struct seq_file *m = (struct seq_file *)args->arg0;
