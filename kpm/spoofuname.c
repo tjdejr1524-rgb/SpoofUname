@@ -18,13 +18,10 @@
 #define MYKPM_VERSION "v0.0.1-1-unknown"
 #endif
 
-#ifdef SPOOF_DEBUG
-#define spoof_logd(fmt, ...) logkd(fmt, ##__VA_ARGS__)
-#else
-#define spoof_logd(fmt, ...) ((void)0)
-#endif
+// ===== [수정 1] 디버그 모드가 아니어도 로그가 무조건 dmesg에 찍히도록 강제 변경 =====
+#define spoof_logd(fmt, ...) pr_info("[SpoofUname] " fmt, ##__VA_ARGS__)
 
-/* ===== [수정] seq_file 관련 선언 (헤더 누락 방지) ===== */
+/* ===== [추가] seq_file 관련 선언 ===== */
 struct seq_file {
     char *buf;
     size_t size;
@@ -33,8 +30,22 @@ struct seq_file {
 };
 extern int seq_write(struct seq_file *seq, const void *data, size_t len);
 
-/* ===== [수정] hook 함수 원형 선언 ===== */
-extern hook_err_t hook(void *func, void *replace, void **backup);
+/* ===== [수정 2] @build 문자열을 @localhost 로 변경 ===== */
+static void after_version_proc_show(hook_fargs2_t *args, void *udata)
+{
+    struct seq_file *m = (struct seq_file *)args->arg0;
+    if (!m || !m->buf) return;
+
+    // DuckDetector가 @build를 못 찾도록 build-host를 localhost로 변경
+    const char *clean_ver = "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@localhost) (Android (10087095, +pgo, +bolt, +lto, -mlgo, based on r487747c) clang version 17.0.2 (https://android.googlesource.com/toolchain/llvm-project d9f89f4d16663d5012e5c09495f3b30ece3d2362), LLD 17.0.2) #1 SMP PREEMPT Wed Dec  3 02:05:30 UTC 2025\n";
+    size_t len = strlen(clean_ver);
+
+    // 버퍼 크기가 충분한지 확인 후 덮어쓰기
+    if (m->size >= len) { 
+        m->count = len;
+        memcpy(m->buf, clean_ver, len);
+    }
+}
 
 static char custom_release[SPOOFUNAME_MAX_LENGTH + 1] = "";
 static char custom_version[SPOOFUNAME_MAX_LENGTH + 1] = "";
@@ -63,10 +74,8 @@ int control(const char *args, char *out_msg, int outlen)
             custom_release[SPOOFUNAME_MAX_LENGTH] = '\0';
             modify_enabled = 1;
             reply_len = snprintf(reply_msg, sizeof(reply_msg), "release set to: %s, modify enabled", custom_release);
-            spoof_logd("uname release updated to: %s\n", custom_release);
         } else {
-            reply_len = snprintf(reply_msg, sizeof(reply_msg), "error: release abnormal (min 1 char and max %d chars)",
-                                 SPOOFUNAME_MAX_LENGTH);
+            reply_len = snprintf(reply_msg, sizeof(reply_msg), "error: release abnormal");
         }
     } else if (!strncmp(args, "SV ", 3)) {
         const char *new_version = args + 3;
@@ -77,27 +86,21 @@ int control(const char *args, char *out_msg, int outlen)
             custom_version[SPOOFUNAME_MAX_LENGTH] = '\0';
             modify_enabled = 1;
             reply_len = snprintf(reply_msg, sizeof(reply_msg), "version set to: %s, modify enabled", custom_version);
-            spoof_logd("uname version updated to: %s\n", custom_version);
         } else {
-            reply_len = snprintf(reply_msg, sizeof(reply_msg), "error: version abnormal (min 1 char and max %d chars)",
-                                 SPOOFUNAME_MAX_LENGTH);
+            reply_len = snprintf(reply_msg, sizeof(reply_msg), "error: version abnormal");
         }
     } else if (!strcmp(args, "EN")) {
         modify_enabled = 1;
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "enabled");
-        spoof_logd("enabled\n");
     } else if (!strcmp(args, "DIS")) {
         modify_enabled = 0;
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "disabled");
-        spoof_logd("disabled\n");
     } else if (!strcmp(args, "CR")) {
         custom_release[0] = '\0';
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "release cleared");
-        spoof_logd("release cleared\n");
     } else if (!strcmp(args, "CV")) {
         custom_version[0] = '\0';
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "version cleared");
-        spoof_logd("version cleared\n");
     } else {
         reply_len = snprintf(reply_msg, sizeof(reply_msg), "Unknown command");
     }
@@ -128,48 +131,31 @@ static void before_reboot(hook_fargs4_t *args, void *udata)
             snprintf(status_msg, sizeof(status_msg), "modify: %s\nrelease: %s\nversion: %s",
                      modify_enabled ? "enabled" : "disabled", custom_release, custom_version);
             compat_copy_to_user(arg, status_msg, strlen(status_msg) + 1);
-            spoof_logd("KPM status requested\n");
         }
         break;
-
     case SPOOFUNAME_CMD_ENABLE:
         modify_enabled = 1;
-        spoof_logd("KPM enabled via reboot hook\n");
         break;
-
     case SPOOFUNAME_CMD_DISABLE:
         modify_enabled = 0;
-        spoof_logd("KPM disabled via reboot hook\n");
         break;
-
     case SPOOFUNAME_CMD_SET_RELEASE:
         if (arg && compat_strncpy_from_user(custom_release, (const char __user *)arg, SPOOFUNAME_MAX_LENGTH) > 0) {
             custom_release[SPOOFUNAME_MAX_LENGTH] = '\0';
             modify_enabled = 1;
-            spoof_logd("release set to: %s via reboot hook\n", custom_release);
         }
         break;
-
     case SPOOFUNAME_CMD_SET_VERSION:
         if (arg && compat_strncpy_from_user(custom_version, (const char __user *)arg, SPOOFUNAME_MAX_LENGTH) > 0) {
             custom_version[SPOOFUNAME_MAX_LENGTH] = '\0';
             modify_enabled = 1;
-            spoof_logd("version set to: %s via reboot hook\n", custom_version);
         }
         break;
-
     case SPOOFUNAME_CMD_CLEAR_RELEASE:
         custom_release[0] = '\0';
-        spoof_logd("release cleared via reboot hook\n");
         break;
-
     case SPOOFUNAME_CMD_CLEAR_VERSION:
         custom_version[0] = '\0';
-        spoof_logd("version cleared via reboot hook\n");
-        break;
-
-    default:
-        spoof_logd("Unknown reboot hook command: %u\n", cmd);
         break;
     }
 }
@@ -192,55 +178,32 @@ static void after_newuname(hook_fargs1_t *args, void *udata)
     }
 }
 
-/* ===== [수정] /proc/version 위조 콜백 함수 ===== */
-static int hook_version_proc_show(struct seq_file *m, void *v) {
-    // DuckDetector가 @build를 못 찾도록 깨끗한 문자열 반환
-    const char *clean_ver = "Linux version 6.1.138-android14-11-g0c3d559bcd85-ab14529422 (build-user@build-host) #1 SMP PREEMPT Wed Dec 3 02:05:30 UTC 2025\n";
-    seq_write(m, clean_ver, strlen(clean_ver));
-    return 0;
-}
-
 static long inline_hook_demo_init(const char *args, const char *event, void *__user reserved)
 {
-    spoof_logd("Spoof Uname init\n");
+    spoof_logd("Spoof Uname init started\n");
 
     hook_err_t err = inline_hook_syscalln(__NR_uname, 1, NULL, after_newuname, NULL);
     spoof_logd("uname hook result: %d\n", err);
-
-    if (err != HOOK_NO_ERR) {
-        spoof_logd("Failed to hook uname syscall: %d\n", err);
-        if (err == HOOK_DUPLICATED || err == HOOK_BAD_RELO) {
-            spoof_logd("Hook already exists or relocation failed, trying to continue...\n");
-            return 0;
-        }
+    
+    if (err != HOOK_NO_ERR && err != HOOK_DUPLICATED && err != HOOK_BAD_RELO) {
         return err;
     }
 
     err = inline_hook_syscalln(__NR_reboot, 4, before_reboot, NULL, NULL);
     spoof_logd("reboot hook result: %d\n", err);
 
-    if (err != HOOK_NO_ERR) {
-        spoof_logd("Failed to hook reboot syscall: %d\n", err);
-        if (err == HOOK_DUPLICATED || err == HOOK_BAD_RELO) {
-            spoof_logd("Reboot hook already exists or relocation failed, trying to continue...\n");
-            return 0;
-        }
+    if (err != HOOK_NO_ERR && err != HOOK_DUPLICATED && err != HOOK_BAD_RELO) {
         inline_unhook_syscalln(__NR_uname, NULL, after_newuname);
         return err;
     }
 
-    /* ===== [수정] version_proc_show 후킹 (hook_replace 대신 hook 사용) ===== */
+    /* ===== version_proc_show 후킹 ===== */
     void *target = (void *)kallsyms_lookup_name("version_proc_show");
     if (target) {
-        void *backup = NULL;
-        err = hook(target, (void *)hook_version_proc_show, &backup);
-        if (err == HOOK_NO_ERR) {
-            spoof_logd("version_proc_show hooked successfully\n");
-        } else {
-            spoof_logd("Failed to hook version_proc_show: %d\n", err);
-        }
+        hook_wrap(target, 2, NULL, after_version_proc_show, NULL);
+        spoof_logd("version_proc_show hooked with hook_wrap successfully\n");
     } else {
-        spoof_logd("Failed to find version_proc_show\n");
+        spoof_logd("Failed to find version_proc_show symbol\n");
     }
 
     return 0;
@@ -248,23 +211,16 @@ static long inline_hook_demo_init(const char *args, const char *event, void *__u
 
 static long inline_hook_control0(const char *args, char *__user out_msg, int outlen)
 {
-    spoof_logd("kpm control, args: %s\n", args ? args : "(null)");
-
     if (!out_msg || outlen <= 0) {
         return control(args, NULL, 0);
     }
 
     char buf[256] = { 0 };
     int ret = control(args, buf, sizeof(buf));
-    if (ret < 0) {
-        return ret;
-    }
+    if (ret < 0) return ret;
 
     int copy_len = min(strlen(buf) + 1, outlen);
-    if (compat_copy_to_user(out_msg, buf, copy_len) <= 0) {
-        spoof_logd("failed to copy control reply to user\n");
-        return -1;
-    }
+    if (compat_copy_to_user(out_msg, buf, copy_len) <= 0) return -1;
     return 0;
 }
 
@@ -274,7 +230,6 @@ static long inline_hook_demo_exit(void *__user reserved)
     modify_enabled = 0;
     inline_unhook_syscalln(__NR_uname, NULL, after_newuname);
     inline_unhook_syscalln(__NR_reboot, before_reboot, NULL);
-    
     return 0;
 }
 
